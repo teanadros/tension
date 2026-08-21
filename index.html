@@ -86,9 +86,34 @@ h1{font-size:27px;font-weight:750;letter-spacing:-.025em;margin:0 0 20px;line-he
 .chip[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .input{width:100%;margin-top:10px;padding:10px 11px;font-size:14px;border:1px solid var(--line);
        border-radius:4px;background:#fff;font-family:var(--ui);color:var(--ink)}
+.stamp{display:block;margin-top:12px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+       color:var(--ink-3);font-weight:700}
+.stamp .input{margin-top:5px;letter-spacing:normal;text-transform:none;font-weight:400}
 .alert{margin-top:12px;padding:11px 12px;border-radius:5px;font-size:13px;line-height:1.5;
        border-left:3px solid var(--crit);background:rgba(156,50,44,.09);color:var(--crit)}
 .alert.info{border-left-color:var(--blue);background:rgba(28,95,126,.08);color:var(--blue)}
+/* estadísticas */
+.headlinks{display:flex;gap:2px;flex:0 0 auto}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.cell{background:var(--card);padding:12px 13px}
+.cell .k{font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);font-weight:700;margin-bottom:5px}
+.cell .v{font-family:var(--mono);font-size:23px;font-weight:700;line-height:1.1}
+.cell .s{font-size:11.5px;color:var(--ink-2);margin-top:4px;line-height:1.4}
+.up{color:var(--high)} .down{color:var(--ok)} .flat{color:var(--ink-3)}
+.bars{margin-top:6px}
+.bar{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:12.5px}
+.bar .lab{flex:0 0 76px;color:var(--ink-2)}
+.bar .rail{flex:1;height:16px;background:var(--line);border-radius:2px;overflow:hidden}
+.bar .fill{height:100%;background:var(--blue)}
+.bar .num{flex:0 0 74px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:700}
+.chart{width:100%;height:auto;display:block;margin-top:4px;overflow:visible}
+.chart text{font-family:var(--mono);font-size:9px;fill:var(--ink-3)}
+.legend{display:flex;gap:14px;font-size:11.5px;color:var(--ink-2);margin-top:8px;flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:5px}
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px}
+.tbl th{text-align:left;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);padding:5px 6px 5px 0;font-weight:700}
+.tbl td{padding:6px 6px 6px 0;border-top:1px solid var(--line);font-family:var(--mono);font-size:12.5px}
+.tbl td:first-child{font-family:var(--ui);color:var(--ink-2)}
 .foot{font-size:11.5px;color:var(--ink-3);line-height:1.6;margin-top:26px}
 .hide{display:none !important}
 .spin{display:inline-block;animation:blink 1s steps(2,start) infinite}
@@ -103,7 +128,10 @@ h1{font-size:27px;font-weight:750;letter-spacing:-.025em;margin:0 0 20px;line-he
       <p class="eyebrow">Automedida domiciliaria</p>
       <h1>Diario de tensión</h1>
     </div>
-    <button class="link" id="settingsToggle">Ajustes</button>
+    <div class="headlinks">
+      <button class="link" id="statsToggle">Estadísticas</button>
+      <button class="link" id="settingsToggle">Ajustes</button>
+    </div>
   </div>
 
   <!-- AJUSTES -->
@@ -128,20 +156,24 @@ h1{font-size:27px;font-weight:750;letter-spacing:-.025em;margin:0 0 20px;line-he
     </div>
   </div>
 
-  <!-- LCD -->
-  <div class="lcd" id="lcd"></div>
+  <div id="diaryView">
+    <!-- LCD -->
+    <div class="lcd" id="lcd"></div>
 
-  <div id="msgs"></div>
+    <div id="msgs"></div>
 
-  <!-- acciones -->
-  <div id="actions"></div>
+    <!-- acciones -->
+    <div id="actions"></div>
+
+    <div id="seriesCard"></div>
+    <div id="historyCard"></div>
+  </div>
+
+  <div id="statsView" class="hide"></div>
 
   <input id="shot" type="file" accept="image/*" capture="environment" hidden>
   <input id="pick" type="file" accept="image/*" hidden>
   <input id="restoreFile" type="file" accept="application/json,.json" hidden>
-
-  <div id="seriesCard"></div>
-  <div id="historyCard"></div>
 
   <p class="foot">
     Esto es un cuaderno de registro, no un aparato médico: las cifras las mide tu tensiómetro, aquí solo se anotan.
@@ -183,6 +215,11 @@ function classify(sys, dia){
 function dayKey(ts){
   const d = new Date(ts);
   return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+function toLocalInput(d){
+  const p = n => String(n).padStart(2,"0");
+  return d.getFullYear() + "-" + p(d.getMonth()+1) + "-" + p(d.getDate()) +
+         "T" + p(d.getHours()) + ":" + p(d.getMinutes());
 }
 function whenText(ts){
   const d = new Date(ts), mins = Math.round((Date.now() - d.getTime())/60000);
@@ -279,9 +316,9 @@ async function readPhoto(base64){
 
 /* ---------- flujo ---------- */
 function blankDraft(source){
-  const h = new Date().getHours();
+  const now = new Date(), h = now.getHours();
   return {sys:"", dia:"", pulse:"", arm:"Izquierdo", period: h < 12 ? "Mañana" : "Noche",
-          med:false, note:"", source: source || "manual"};
+          med:false, note:"", source: source || "manual", ts: toLocalInput(now)};
 }
 
 async function handleFile(e){
@@ -324,13 +361,15 @@ function draftValid(){
 function saveDraft(){
   if(!draftValid()) return;
   const n = draftNums();
+  const when = draft.ts ? new Date(draft.ts) : new Date();
   readings.unshift({
     id: Date.now() + "-" + Math.random().toString(36).slice(2,7),
-    ts: new Date().toISOString(),
+    ts: (isNaN(when.getTime()) ? new Date() : when).toISOString(),
     sys:n.sys, dia:n.dia, pulse:n.pulse,
     arm:draft.arm, period:draft.period, med:draft.med,
     note:draft.note.trim(), source:draft.source
   });
+  readings.sort((a,b) => new Date(b.ts) - new Date(a.ts));
   save();
   draft = null; preview = null; msg = null; render();
 }
@@ -444,6 +483,7 @@ function render(){
   }
 
   renderMsgs(); renderActions(); renderSeries(); renderHistory();
+  if(view === "stats") renderStats();
 }
 
 function renderMsgs(){
@@ -472,6 +512,8 @@ function renderActions(){
     box.innerHTML =
       '<div class="opts">' + arms + pers +
         '<button class="chip" id="cMed" aria-pressed="' + draft.med + '">Medicación tomada</button></div>' +
+      '<label class="stamp">Fecha y hora de la medición' +
+      '<input class="input" id="cWhen" type="datetime-local" value="' + esc(draft.ts) + '"></label>' +
       '<input class="input" id="cNote" placeholder="Nota (opcional): cómo te encontrabas, si habías andado…" value="' + esc(draft.note) + '">' +
       '<div class="row"><button class="btn" id="bSave"' + (draftValid() ? "" : " disabled") + '>Guardar lectura</button>' +
       '<button class="btn ghost" id="bCancel">Descartar</button></div>' +
@@ -481,6 +523,7 @@ function renderActions(){
     box.querySelectorAll("[data-arm]").forEach(b => b.onclick = () => { draft.arm = b.dataset.arm; renderActions(); });
     box.querySelectorAll("[data-per]").forEach(b => b.onclick = () => { draft.period = b.dataset.per; renderActions(); });
     document.getElementById("cMed").onclick = () => { draft.med = !draft.med; renderActions(); };
+    document.getElementById("cWhen").onchange = e => { draft.ts = e.target.value; };
     document.getElementById("cNote").oninput = e => { draft.note = e.target.value; };
     document.getElementById("bSave").onclick = saveDraft;
     document.getElementById("bCancel").onclick = () => { draft = null; preview = null; msg = null; render(); };
@@ -543,6 +586,271 @@ function renderHistory(){
   });
   document.getElementById("bCsv").onclick = exportCSV;
 }
+
+/* ---------- estadísticas ---------- */
+const T_SYS = 135, T_DIA = 85;          // objetivo domiciliario (AMPA)
+let view = "diario";
+
+const tsOf = r => new Date(r.ts).getTime();
+const lastDays = d => readings.filter(r => tsOf(r) >= Date.now() - d*86400000);
+const mean = (a,k) => a.length ? a.reduce((s,r) => s + r[k], 0) / a.length : null;
+const meanOf = (a,f) => a.length ? a.reduce((s,r) => s + f(r), 0) / a.length : null;
+function sd(a,k){
+  if(a.length < 2) return null;
+  const m = mean(a,k);
+  return Math.sqrt(a.reduce((s,r) => s + (r[k]-m)*(r[k]-m), 0) / (a.length-1));
+}
+const pairOf = a => a.length ? Math.round(mean(a,"sys")) + "/" + Math.round(mean(a,"dia")) : "—";
+const pctTarget = a => a.length ? 100 * a.filter(r => r.sys < T_SYS && r.dia < T_DIA).length / a.length : null;
+const num = (v,d) => v == null ? "—" : v.toFixed(d == null ? 0 : d);
+
+function trend(days){
+  const now = Date.now(), ms = days*86400000;
+  const a = readings.filter(r => tsOf(r) >= now - ms);
+  const b = readings.filter(r => tsOf(r) < now - ms && tsOf(r) >= now - 2*ms);
+  if(a.length < 2 || b.length < 2) return null;
+  return {sys: mean(a,"sys") - mean(b,"sys"), dia: mean(a,"dia") - mean(b,"dia"), na:a.length, nb:b.length};
+}
+function group(arr, keyFn){
+  const m = new Map();
+  arr.forEach(r => { const k = keyFn(r); if(!m.has(k)) m.set(k,[]); m.get(k).push(r); });
+  return m;
+}
+function monday(ms){
+  const d = new Date(ms); d.setHours(0,0,0,0);
+  d.setDate(d.getDate() - ((d.getDay()+6) % 7));
+  return d.getTime();
+}
+function streak(){
+  const seen = new Set(readings.map(r => dayKey(r.ts)));
+  let n = 0, d = new Date();
+  if(!seen.has(dayKey(d.getTime()))) d.setDate(d.getDate()-1);
+  while(seen.has(dayKey(d.getTime()))){ n++; d.setDate(d.getDate()-1); }
+  return n;
+}
+
+/* --- piezas de dibujo --- */
+function barRow(label, pct, text, color){
+  return '<div class="bar"><span class="lab">' + esc(label) + '</span>' +
+    '<span class="rail"><span class="fill" style="width:' + Math.max(0,Math.min(100,pct)) + '%' +
+    (color ? ';background:' + color : "") + '"></span></span>' +
+    '<span class="num">' + esc(text) + '</span></div>';
+}
+function deltaCell(label, t, unit){
+  if(!t) return '<div class="cell"><div class="k">' + esc(label) + '</div><div class="v">—</div>' +
+    '<div class="s">Aún no hay dos periodos que comparar.</div></div>';
+  const cls = Math.abs(t.sys) < 1 ? "flat" : (t.sys > 0 ? "up" : "down");
+  const sign = v => (v > 0 ? "+" : "") + v.toFixed(1);
+  return '<div class="cell"><div class="k">' + esc(label) + '</div>' +
+    '<div class="v ' + cls + '">' + sign(t.sys) + " / " + sign(t.dia) + '</div>' +
+    '<div class="s">mmHg respecto ' + unit + ' (' + t.na + ' vs ' + t.nb + ' lecturas).</div></div>';
+}
+
+/* --- gráfico de evolución --- */
+function lineChart(pool){
+  const pts = pool.slice().sort((a,b) => tsOf(a) - tsOf(b));
+  if(pts.length < 2) return '<p class="note">Hacen falta al menos dos lecturas para dibujar la evolución.</p>';
+  const W = 600, H = 210, L = 30, R = 6, TP = 10, B = 20;
+  const iw = W - L - R, ih = H - TP - B;
+  const t0 = tsOf(pts[0]), t1 = tsOf(pts[pts.length-1]), span = Math.max(1, t1 - t0);
+  const vals = pts.flatMap(r => [r.sys, r.dia]).concat([T_DIA, T_SYS]);
+  const lo = Math.floor((Math.min.apply(null, vals) - 8) / 10) * 10;
+  const hi = Math.ceil((Math.max.apply(null, vals) + 8) / 10) * 10;
+  const X = r => L + iw * (tsOf(r) - t0) / span;
+  const Y = v => TP + ih * (1 - (v - lo) / (hi - lo));
+  const path = k => pts.map((r,i) => (i ? "L" : "M") + X(r).toFixed(1) + " " + Y(r[k]).toFixed(1)).join(" ");
+
+  let g = "";
+  for(let v = lo; v <= hi; v += 10)
+    g += '<line x1="' + L + '" y1="' + Y(v).toFixed(1) + '" x2="' + (W-R) + '" y2="' + Y(v).toFixed(1) +
+         '" stroke="var(--line)" stroke-width="1"/><text x="0" y="' + (Y(v)+3).toFixed(1) + '">' + v + '</text>';
+  const goal = v => '<line x1="' + L + '" y1="' + Y(v).toFixed(1) + '" x2="' + (W-R) + '" y2="' + Y(v).toFixed(1) +
+    '" stroke="var(--warn)" stroke-width="1" stroke-dasharray="4 3" opacity=".75"/>';
+  const dots = k => pts.map(r => '<circle cx="' + X(r).toFixed(1) + '" cy="' + Y(r[k]).toFixed(1) +
+    '" r="1.8" fill="' + (k === "sys" ? "var(--high)" : "var(--blue)") + '"/>').join("");
+  const fd = ms => new Date(ms).toLocaleDateString("es-ES",{day:"numeric",month:"short"});
+
+  return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" ' +
+    'aria-label="Evolución de la sistólica y la diastólica">' + g + goal(T_SYS) + goal(T_DIA) +
+    '<path d="' + path("sys") + '" fill="none" stroke="var(--high)" stroke-width="1.6" stroke-linejoin="round"/>' +
+    '<path d="' + path("dia") + '" fill="none" stroke="var(--blue)" stroke-width="1.6" stroke-linejoin="round"/>' +
+    dots("sys") + dots("dia") +
+    '<text x="' + L + '" y="' + (H-6) + '">' + fd(t0) + '</text>' +
+    '<text x="' + (W-R) + '" y="' + (H-6) + '" text-anchor="end">' + fd(t1) + '</text></svg>' +
+    '<div class="legend"><span><i style="background:var(--high)"></i>Sistólica</span>' +
+    '<span><i style="background:var(--blue)"></i>Diastólica</span>' +
+    '<span><i style="background:var(--warn)"></i>Objetivo ' + T_SYS + "/" + T_DIA + '</span></div>';
+}
+
+/* --- render --- */
+function renderStats(){
+  const box = document.getElementById("statsView");
+  if(readings.length < 2){
+    box.innerHTML = '<div class="card"><h2>Estadísticas</h2>' +
+      '<p class="note" style="margin-top:0">Con una lectura no hay nada que resumir. ' +
+      'Anota unas cuantas y aquí aparecerán medias, tendencias y patrones.</p></div>';
+    return;
+  }
+  const d7 = lastDays(7), d30 = lastDays(30), d90 = lastDays(90);
+  const s = series();
+  const tgt = pctTarget(d30);
+  const sdSys = sd(d30,"sys"), sdDia = sd(d30,"dia");
+  const withPulse = readings.filter(r => r.pulse != null);
+  const pulses = withPulse.map(r => r.pulse);
+  const maxR = readings.slice().sort((a,b) => b.sys - a.sys)[0];
+  const minR = readings.slice().sort((a,b) => a.sys - b.sys)[0];
+  const daysMeasured = new Set(d30.map(r => dayKey(r.ts))).size;
+  const fdate = ts => new Date(ts).toLocaleDateString("es-ES",{day:"numeric",month:"short",year:"2-digit"});
+
+  let h = "";
+
+  /* resumen */
+  h += '<div class="card"><h2>Resumen</h2><div class="grid">' +
+    '<div class="cell"><div class="k">Media 7 días</div><div class="v">' + (s ? s.sys + "/" + s.dia : pairOf(d7)) +
+      '</div><div class="s">' + (s ? s.count + " lecturas, protocolo AMPA" : d7.length + " lecturas") + '</div></div>' +
+    '<div class="cell"><div class="k">Media 30 días</div><div class="v">' + pairOf(d30) +
+      '</div><div class="s">' + d30.length + ' lecturas</div></div>' +
+    '<div class="cell"><div class="k">En objetivo</div><div class="v">' + num(tgt) + '%</div>' +
+      '<div class="s">Tomas por debajo de ' + T_SYS + "/" + T_DIA + ' en 30 días</div></div>' +
+    '<div class="cell"><div class="k">Registro total</div><div class="v">' + readings.length + '</div>' +
+      '<div class="s">desde ' + fdate(readings[readings.length-1].ts) + '</div></div>' +
+    '</div></div>';
+
+  /* evolución */
+  h += '<div class="card"><h2>Evolución · 90 días</h2>' + lineChart(d90.length >= 2 ? d90 : readings) + '</div>';
+
+  /* tendencia y variabilidad */
+  h += '<div class="card"><h2>Tendencia y variabilidad</h2><div class="grid">' +
+    deltaCell("Últimos 7 días", trend(7), "los 7 anteriores") +
+    deltaCell("Últimos 30 días", trend(30), "los 30 anteriores") +
+    '<div class="cell"><div class="k">Variabilidad sistólica</div><div class="v">' + num(sdSys,1) + '</div>' +
+      '<div class="s">desviación típica en 30 días</div></div>' +
+    '<div class="cell"><div class="k">Variabilidad diastólica</div><div class="v">' + num(sdDia,1) + '</div>' +
+      '<div class="s">desviación típica en 30 días</div></div>' +
+    '</div><p class="note">Un valor negativo en la tendencia significa que has bajado. ' +
+    'La variabilidad mide cuánto oscilan tus cifras: una media buena con mucha oscilación no es lo mismo que una media buena estable.</p></div>';
+
+  /* distribución por categoría */
+  const cats = ["Baja","Óptima","Normal","Normal alta","Grado 1","Grado 2","Grado 3"];
+  const byCat = group(readings, r => classify(r.sys, r.dia).label);
+  h += '<div class="card"><h2>Distribución por categoría</h2><div class="bars">' +
+    cats.filter(c => byCat.has(c)).map(c => {
+      const g = byCat.get(c), p = 100*g.length/readings.length;
+      return barRow(c, p, g.length + " · " + Math.round(p) + "%", classify(
+        c === "Baja" ? 85 : c === "Óptima" ? 110 : c === "Normal" ? 125 :
+        c === "Normal alta" ? 133 : c === "Grado 1" ? 145 : c === "Grado 2" ? 165 : 185,
+        c === "Baja" ? 55 : 70).color);
+    }).join("") + '</div></div>';
+
+  /* tramos horarios */
+  const bins = ["00–04","04–08","08–12","12–16","16–20","20–24"];
+  const byHour = group(readings, r => bins[Math.floor(new Date(r.ts).getHours()/4)]);
+  const maxHour = Math.max.apply(null, bins.map(b => byHour.has(b) ? mean(byHour.get(b),"sys") : 0));
+  h += '<div class="card"><h2>Por tramo horario</h2><div class="bars">' +
+    bins.map(b => {
+      if(!byHour.has(b)) return barRow(b, 0, "—");
+      const g = byHour.get(b);
+      return barRow(b, 100*mean(g,"sys")/maxHour, pairOf(g) + " ·" + g.length);
+    }).join("") + '</div>' +
+    '<p class="note">La barra representa la sistólica media del tramo. Es normal un pico a primera hora de la mañana.</p></div>';
+
+  /* mañana / noche y día de la semana */
+  const mor = readings.filter(r => r.period === "Mañana"), nig = readings.filter(r => r.period === "Noche");
+  const dias = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+  const byDow = group(readings, r => dias[(new Date(r.ts).getDay()+6)%7]);
+  const maxDow = Math.max.apply(null, dias.map(d => byDow.has(d) ? mean(byDow.get(d),"sys") : 0));
+  h += '<div class="card"><h2>Mañana y noche</h2><div class="grid">' +
+    '<div class="cell"><div class="k">Mañana</div><div class="v">' + pairOf(mor) + '</div><div class="s">' + mor.length + ' lecturas</div></div>' +
+    '<div class="cell"><div class="k">Noche</div><div class="v">' + pairOf(nig) + '</div><div class="s">' + nig.length + ' lecturas</div></div>' +
+    '</div></div>' +
+    '<div class="card"><h2>Por día de la semana</h2><div class="bars">' +
+    dias.map(d => byDow.has(d)
+      ? barRow(d, 100*mean(byDow.get(d),"sys")/maxDow, pairOf(byDow.get(d)) + " ·" + byDow.get(d).length)
+      : barRow(d, 0, "—")).join("") + '</div></div>';
+
+  /* semanas y meses */
+  const byWeek = group(readings, r => monday(tsOf(r)));
+  const weeks = Array.from(byWeek.keys()).sort((a,b) => b-a).slice(0,12);
+  h += '<div class="card"><h2>Medias semanales</h2><table class="tbl">' +
+    '<tr><th>Semana del</th><th>Media</th><th>Pulso</th><th>Tomas</th></tr>' +
+    weeks.map(w => {
+      const g = byWeek.get(w), pg = g.filter(r => r.pulse != null);
+      return '<tr><td>' + fdate(w) + '</td><td>' + pairOf(g) + '</td><td>' +
+        (pg.length ? Math.round(mean(pg,"pulse")) : "—") + '</td><td>' + g.length + '</td></tr>';
+    }).join("") + '</table></div>';
+
+  const byMonth = group(readings, r => { const d = new Date(r.ts); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0"); });
+  const months = Array.from(byMonth.keys()).sort().reverse().slice(0,12);
+  h += '<div class="card"><h2>Medias mensuales</h2><table class="tbl">' +
+    '<tr><th>Mes</th><th>Media</th><th>En objetivo</th><th>Tomas</th></tr>' +
+    months.map(m => {
+      const g = byMonth.get(m), [y,mm] = m.split("-");
+      const nom = new Date(y, mm-1, 1).toLocaleDateString("es-ES",{month:"long",year:"numeric"});
+      return '<tr><td>' + nom + '</td><td>' + pairOf(g) + '</td><td>' + num(pctTarget(g)) + '%</td><td>' + g.length + '</td></tr>';
+    }).join("") + '</table></div>';
+
+  /* brazo, medicación */
+  const izq = readings.filter(r => r.arm === "Izquierdo"), der = readings.filter(r => r.arm === "Derecho");
+  const conMed = readings.filter(r => r.med), sinMed = readings.filter(r => !r.med);
+  let armNote = "Mide siempre el mismo brazo para que las cifras sean comparables.";
+  if(izq.length >= 3 && der.length >= 3){
+    const dif = Math.abs(mean(izq,"sys") - mean(der,"sys"));
+    armNote = "Diferencia sistólica media entre brazos: " + dif.toFixed(1) + " mmHg." +
+      (dif >= 10 ? " Una asimetría mantenida por encima de 10 mmHg conviene comentarla con tu médico." : "");
+  }
+  h += '<div class="card"><h2>Brazo y medicación</h2><div class="grid">' +
+    '<div class="cell"><div class="k">Brazo izquierdo</div><div class="v">' + pairOf(izq) + '</div><div class="s">' + izq.length + ' lecturas</div></div>' +
+    '<div class="cell"><div class="k">Brazo derecho</div><div class="v">' + pairOf(der) + '</div><div class="s">' + der.length + ' lecturas</div></div>' +
+    '<div class="cell"><div class="k">Con medicación</div><div class="v">' + pairOf(conMed) + '</div><div class="s">' + conMed.length + ' lecturas</div></div>' +
+    '<div class="cell"><div class="k">Sin marcar</div><div class="v">' + pairOf(sinMed) + '</div><div class="s">' + sinMed.length + ' lecturas</div></div>' +
+    '</div><p class="note">' + esc(armNote) + '</p></div>';
+
+  /* derivados y extremos */
+  const pp = meanOf(readings, r => r.sys - r.dia);
+  const pam = meanOf(readings, r => r.dia + (r.sys - r.dia)/3);
+  h += '<div class="card"><h2>Cifras derivadas</h2><div class="grid">' +
+    '<div class="cell"><div class="k">Presión de pulso</div><div class="v">' + num(pp) + '</div>' +
+      '<div class="s">sistólica menos diastólica, media</div></div>' +
+    '<div class="cell"><div class="k">Presión arterial media</div><div class="v">' + num(pam) + '</div>' +
+      '<div class="s">mmHg</div></div>' +
+    '<div class="cell"><div class="k">Pulso</div><div class="v">' +
+      (pulses.length ? Math.round(mean(withPulse,"pulse")) : "—") + '</div><div class="s">' +
+      (pulses.length ? "entre " + Math.min.apply(null,pulses) + " y " + Math.max.apply(null,pulses) + " ppm" : "sin datos") + '</div></div>' +
+    '<div class="cell"><div class="k">Máximo y mínimo</div><div class="v" style="font-size:17px">' +
+      maxR.sys + "/" + maxR.dia + '<br>' + minR.sys + "/" + minR.dia + '</div>' +
+      '<div class="s">' + fdate(maxR.ts) + ' · ' + fdate(minR.ts) + '</div></div>' +
+    '</div></div>';
+
+  /* constancia */
+  h += '<div class="card"><h2>Constancia del registro</h2><div class="grid">' +
+    '<div class="cell"><div class="k">Días medidos</div><div class="v">' + daysMeasured + '/30</div>' +
+      '<div class="s">en el último mes</div></div>' +
+    '<div class="cell"><div class="k">Racha actual</div><div class="v">' + streak() + '</div>' +
+      '<div class="s">días seguidos midiendo</div></div>' +
+    '</div><p class="note">El reparto entre mañana y noche importa: si mides casi siempre a la misma hora, ' +
+    'la media queda sesgada hacia ese momento del día.</p></div>';
+
+  h += '<div class="card"><h2>Cómo leer esto</h2><p class="note" style="margin-top:0">' +
+    'Las categorías (óptima, grado 1…) usan los umbrales de consulta, que es donde están definidas. ' +
+    'El "en objetivo" usa en cambio ' + T_SYS + "/" + T_DIA + ', el umbral de la automedida domiciliaria: ' +
+    'en casa las cifras salen algo más bajas que en la consulta porque no hay efecto bata blanca. ' +
+    'Son dos escalas distintas a propósito, no una contradicción.</p>' +
+    '<div class="row"><button class="btn ghost slim" id="bCsv2">Exportar CSV</button></div></div>';
+
+  box.innerHTML = h;
+  const b = document.getElementById("bCsv2");
+  if(b) b.onclick = exportCSV;
+}
+
+function setView(v){
+  view = v;
+  document.getElementById("diaryView").classList.toggle("hide", v !== "diario");
+  document.getElementById("statsView").classList.toggle("hide", v !== "stats");
+  document.getElementById("statsToggle").textContent = v === "stats" ? "Volver al diario" : "Estadísticas";
+  if(v === "stats") renderStats();
+  window.scrollTo(0,0);
+}
+document.getElementById("statsToggle").onclick = () => setView(view === "stats" ? "diario" : "stats");
 
 /* ---------- ajustes ---------- */
 const settings = document.getElementById("settings");
