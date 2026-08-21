@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Diario de tensión</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#0f1a1f">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+:root{
+  --ink:#0f1a1f; --ink-2:#4a5f63; --ink-3:#7d8f90;
+  --paper:#e7ebe6; --card:#f5f7f3; --line:#ccd4ca;
+  --lcd:#a9bda4; --lcd-ink:#14201a;
+  --blue:#1c5f7e; --ok:#2c6a4d; --warn:#a86f16; --high:#9c322c; --crit:#74201d;
+  --ui:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,"SF Mono","Roboto Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper)}
+body{
+  font-family:var(--ui);color:var(--ink);
+  padding:max(20px,env(safe-area-inset-top)) 16px calc(56px + env(safe-area-inset-bottom));
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:560px;margin:0 auto}
+.eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin:0 0 6px}
+h1{font-size:27px;font-weight:750;letter-spacing:-.025em;margin:0 0 20px;line-height:1.1}
+.head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.link{background:none;border:none;color:var(--ink-3);font-size:12px;font-family:var(--ui);cursor:pointer;text-decoration:underline;padding:4px}
+.link:hover{color:var(--ink)}
+
+/* panel LCD */
+.lcd{background:var(--lcd);border:1px solid #8fa389;border-radius:6px;padding:18px 16px 14px;
+     box-shadow:inset 0 2px 10px rgba(20,32,26,.18)}
+.lcd-label{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(20,32,26,.55);margin-bottom:2px}
+.readout{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
+.digits{position:relative;font-family:var(--mono);line-height:.95}
+.ghost{position:absolute;inset:0;color:var(--lcd-ink);opacity:.11;pointer-events:none;user-select:none}
+.big{font-size:52px;font-weight:700;color:var(--lcd-ink);letter-spacing:.01em}
+.slash{font-size:34px;color:rgba(20,32,26,.45);font-family:var(--mono);padding-bottom:4px}
+.unit{font-family:var(--mono);font-size:11px;color:rgba(20,32,26,.6);padding-bottom:8px}
+.pulse{margin-left:auto;text-align:right;font-family:var(--mono);color:var(--lcd-ink);padding-bottom:4px}
+.pulse b{font-size:26px;font-weight:700}
+.lcd-foot{margin-top:12px;padding-top:10px;border-top:1px solid rgba(20,32,26,.18);
+          font-size:12px;color:rgba(20,32,26,.7);display:flex;justify-content:space-between;gap:10px}
+.empty{font-size:13px;color:rgba(20,32,26,.65);line-height:1.5;margin:0}
+.field{font-family:var(--mono);font-size:46px;font-weight:700;width:3.1ch;background:transparent;border:none;
+       border-bottom:2px solid rgba(20,32,26,.35);color:var(--lcd-ink);text-align:center;padding:0 0 2px}
+.field.sm{font-size:26px}
+.field:focus{outline:none;border-bottom-color:var(--lcd-ink);background:rgba(255,255,255,.28)}
+.thumb{max-width:100%;max-height:150px;border-radius:5px;border:1px solid var(--line);display:block;margin-bottom:12px}
+
+/* botones */
+.row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.btn{font-family:var(--ui);font-size:14px;font-weight:600;padding:12px 16px;border-radius:5px;
+     border:1px solid var(--ink);background:var(--ink);color:var(--paper);cursor:pointer;flex:1 1 auto;min-height:44px}
+.btn:hover{opacity:.86}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn.ghost:hover{border-color:var(--ink)}
+.btn.slim{flex:0 0 auto;padding:9px 13px;font-size:13px;min-height:38px}
+.btn.danger{border-color:var(--high);color:var(--high);background:transparent}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+
+/* tarjetas */
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:16px;margin-top:18px}
+.card h2{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);margin:0 0 12px;font-weight:700}
+.track{display:flex;gap:4px;margin:10px 0 12px}
+.tick{flex:1;height:7px;border-radius:2px;background:var(--line)}
+.tick.on{background:var(--blue)}
+.tick.skip{opacity:.45;border:1px dashed var(--ink-3)}
+.avg{font-family:var(--mono);font-size:30px;font-weight:700}
+.note{font-size:12.5px;color:var(--ink-2);line-height:1.55;margin:8px 0 0}
+.item{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
+.item:first-of-type{border-top:none}
+.dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.val{font-family:var(--mono);font-size:17px;font-weight:700;min-width:82px}
+.meta{font-size:12px;color:var(--ink-2);flex:1;line-height:1.4}
+.x{background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:18px;padding:4px 8px;line-height:1;border-radius:4px}
+.x:hover{color:var(--high)}
+.opts{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.chip{font-size:12.5px;padding:7px 11px;border-radius:4px;border:1px solid var(--line);background:transparent;
+      color:var(--ink-2);cursor:pointer;font-family:var(--ui);min-height:36px}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.input{width:100%;margin-top:10px;padding:10px 11px;font-size:14px;border:1px solid var(--line);
+       border-radius:4px;background:#fff;font-family:var(--ui);color:var(--ink)}
+.alert{margin-top:12px;padding:11px 12px;border-radius:5px;font-size:13px;line-height:1.5;
+       border-left:3px solid var(--crit);background:rgba(156,50,44,.09);color:var(--crit)}
+.alert.info{border-left-color:var(--blue);background:rgba(28,95,126,.08);color:var(--blue)}
+.foot{font-size:11.5px;color:var(--ink-3);line-height:1.6;margin-top:26px}
+.hide{display:none !important}
+.spin{display:inline-block;animation:blink 1s steps(2,start) infinite}
+@keyframes blink{to{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <p class="eyebrow">Automedida domiciliaria</p>
+      <h1>Diario de tensión</h1>
+    </div>
+    <button class="link" id="settingsToggle">Ajustes</button>
+  </div>
+
+  <!-- AJUSTES -->
+  <div class="card hide" id="settings">
+    <h2>Lectura por foto</h2>
+    <p class="note" style="margin-top:0">
+      Pega tu clave de la API de Gemini. Se guarda solo en este móvil y no sale de aquí salvo para leer tus fotos.
+      Sin clave, la app sigue funcionando escribiendo las cifras a mano.
+    </p>
+    <input class="input" id="apiKey" type="password" placeholder="Clave de API" autocomplete="off">
+    <input class="input" id="modelId" placeholder="Modelo (se detecta solo)">
+    <div class="row">
+      <button class="btn" id="saveKey">Guardar y comprobar</button>
+      <button class="btn ghost slim" id="closeSettings">Cerrar</button>
+    </div>
+    <div id="keyMsg"></div>
+    <h2 style="margin-top:22px">Copia de seguridad</h2>
+    <p class="note" style="margin-top:0">Los datos viven en este navegador. Si lo borras, se van. Guarda una copia de vez en cuando.</p>
+    <div class="row">
+      <button class="btn ghost slim" id="backupBtn">Descargar copia</button>
+      <button class="btn ghost slim" id="restoreBtn">Restaurar copia</button>
+    </div>
+  </div>
+
+  <!-- LCD -->
+  <div class="lcd" id="lcd"></div>
+
+  <div id="msgs"></div>
+
+  <!-- acciones -->
+  <div id="actions"></div>
+
+  <input id="shot" type="file" accept="image/*" capture="environment" hidden>
+  <input id="pick" type="file" accept="image/*" hidden>
+  <input id="restoreFile" type="file" accept="application/json,.json" hidden>
+
+  <div id="seriesCard"></div>
+  <div id="historyCard"></div>
+
+  <p class="foot">
+    Esto es un cuaderno de registro, no un aparato médico: las cifras las mide tu tensiómetro, aquí solo se anotan.
+    Las categorías siguen la guía europea de hipertensión y son orientativas; quien interpreta tus datos es tu médico.
+    Todo se guarda en este dispositivo.
+  </p>
+</div>
+
+<script>
+"use strict";
+const K_DATA = "tension.readings", K_KEY = "tension.apikey", K_MODEL = "tension.model";
+
+let readings = [];
+let draft = null, preview = null, scanning = false, msg = null, msgKind = "err", confirmId = null;
+
+/* ---------- almacenamiento ---------- */
+function load(){
+  try { readings = JSON.parse(localStorage.getItem(K_DATA) || "[]"); }
+  catch(e){ readings = []; }
+}
+function save(){
+  try { localStorage.setItem(K_DATA, JSON.stringify(readings)); }
+  catch(e){ setMsg("No se ha podido guardar. Descarga una copia de seguridad desde Ajustes.", "err"); }
+}
+const getKey = () => localStorage.getItem(K_KEY) || "";
+const getModel = () => localStorage.getItem(K_MODEL) || "";
+
+/* ---------- utilidades ---------- */
+function classify(sys, dia){
+  if(!sys || !dia) return {label:"—", color:"var(--ink-3)"};
+  if(sys < 90 || dia < 60) return {label:"Baja", color:"var(--blue)"};
+  if(sys >= 180 || dia >= 110) return {label:"Grado 3", color:"var(--crit)"};
+  if(sys >= 160 || dia >= 100) return {label:"Grado 2", color:"var(--high)"};
+  if(sys >= 140 || dia >= 90) return {label:"Grado 1", color:"var(--high)"};
+  if(sys >= 130 || dia >= 85) return {label:"Normal alta", color:"var(--warn)"};
+  if(sys >= 120 || dia >= 80) return {label:"Normal", color:"var(--ok)"};
+  return {label:"Óptima", color:"var(--ok)"};
+}
+function dayKey(ts){
+  const d = new Date(ts);
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+function whenText(ts){
+  const d = new Date(ts), mins = Math.round((Date.now() - d.getTime())/60000);
+  if(mins < 2) return "ahora mismo";
+  if(mins < 60) return "hace " + mins + " min";
+  if(mins < 1440) return "hace " + Math.round(mins/60) + " h";
+  return d.toLocaleDateString("es-ES", {day:"numeric", month:"short"});
+}
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+    ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function setMsg(text, kind){ msg = text; msgKind = kind || "err"; render(); }
+
+/* ---------- imagen ---------- */
+function prepareImage(file){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error("No se ha podido leer el archivo."));
+    r.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Ese formato de imagen no se puede abrir en el navegador. Prueba con un JPG."));
+      img.onload = () => {
+        const max = 1400, scale = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        const url = c.toDataURL("image/jpeg", .85);
+        resolve({dataUrl:url, base64:url.split(",")[1]});
+      };
+      img.src = r.result;
+    };
+    r.readAsDataURL(file);
+  });
+}
+
+/* ---------- Gemini ---------- */
+const API = "https://generativelanguage.googleapis.com/v1beta/";
+
+async function pickModel(key){
+  const res = await fetch(API + "models?pageSize=200", {headers:{"x-goog-api-key": key}});
+  if(!res.ok) throw new Error(res.status === 400 || res.status === 403
+    ? "La clave no es válida o no tiene permiso para la API de Gemini."
+    : "No se ha podido consultar la lista de modelos.");
+  const data = await res.json();
+  const bad = /embed|tts|audio|image-gen|imagen|veo|live|thinking-exp/i;
+  const cands = (data.models || [])
+    .filter(m => (m.supportedGenerationMethods || []).includes("generateContent"))
+    .map(m => m.name.replace(/^models\//, ""))
+    .filter(n => /flash/i.test(n) && !bad.test(n));
+  if(!cands.length) throw new Error("Tu clave no da acceso a ningún modelo Flash con visión.");
+  const score = n => {
+    const v = parseFloat((n.match(/gemini-([0-9.]+)/) || [0,"0"])[1]) || 0;
+    return v*10 - (/lite/.test(n) ? 3 : 0) - (/preview|exp/.test(n) ? 1 : 0) - (n.length/100);
+  };
+  cands.sort((a,b) => score(b) - score(a));
+  return cands[0];
+}
+
+const PROMPT =
+  "Esta es la foto de la pantalla de un tensiómetro doméstico. Lee los dígitos exactamente como aparecen. " +
+  "Suele haber tres cifras: sistólica (SYS, la mayor, arriba), diastólica (DIA, la menor, en medio) y pulso (PUL, abajo). " +
+  "Responde únicamente con un objeto JSON con las claves sys, dia, pulse (números enteros o null) y confianza " +
+  '("alta", "media" o "baja"). Usa null en cualquier cifra que no se lea con seguridad. No inventes ni redondees.';
+
+async function readPhoto(base64){
+  const key = getKey();
+  if(!key) throw new Error("Añade tu clave de API en Ajustes para leer fotos.");
+  let model = getModel();
+  if(!model){ model = await pickModel(key); localStorage.setItem(K_MODEL, model); }
+  const res = await fetch(API + "models/" + model + ":generateContent", {
+    method:"POST",
+    headers:{"Content-Type":"application/json", "x-goog-api-key":key},
+    body: JSON.stringify({
+      contents:[{role:"user", parts:[
+        {inline_data:{mime_type:"image/jpeg", data:base64}},
+        {text: PROMPT}
+      ]}],
+      generationConfig:{temperature:0, responseMimeType:"application/json"}
+    })
+  });
+  if(res.status === 429) throw new Error("Has llegado al límite gratuito de peticiones. Espera un minuto o escribe las cifras a mano.");
+  if(!res.ok){
+    localStorage.removeItem(K_MODEL);
+    const t = await res.text();
+    throw new Error("La lectura ha fallado (" + res.status + "). " + (t.slice(0,120) || ""));
+  }
+  const data = await res.json();
+  const parts = ((data.candidates || [])[0] || {}).content;
+  const text = ((parts && parts.parts) || []).map(p => p.text || "").join("");
+  return JSON.parse(text.replace(/```json|```/g, "").trim());
+}
+
+/* ---------- flujo ---------- */
+function blankDraft(source){
+  const h = new Date().getHours();
+  return {sys:"", dia:"", pulse:"", arm:"Izquierdo", period: h < 12 ? "Mañana" : "Noche",
+          med:false, note:"", source: source || "manual"};
+}
+
+async function handleFile(e){
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if(!file) return;
+  msg = null; scanning = true; draft = null; preview = null; render();
+  try{
+    const img = await prepareImage(file);
+    preview = img.dataUrl; render();
+    const r = await readPhoto(img.base64);
+    draft = blankDraft("foto");
+    draft.sys = r.sys != null ? String(r.sys) : "";
+    draft.dia = r.dia != null ? String(r.dia) : "";
+    draft.pulse = r.pulse != null ? String(r.pulse) : "";
+    if(r.sys == null || r.dia == null) setMsgQuiet("Alguna cifra no se ha leído bien. Complétala a mano antes de guardar.");
+    else if(r.confianza === "baja") setMsgQuiet("La lectura no es del todo nítida. Compárala con la foto antes de guardar.");
+  }catch(err){
+    setMsgQuiet(err.message || "No se han podido extraer los números de esa foto.");
+    draft = blankDraft("manual");
+  }finally{
+    scanning = false; render();
+  }
+}
+function setMsgQuiet(t){ msg = t; msgKind = "err"; }
+
+function draftNums(){
+  return {
+    sys: parseInt(draft.sys,10),
+    dia: parseInt(draft.dia,10),
+    pulse: draft.pulse === "" ? null : parseInt(draft.pulse,10)
+  };
+}
+function draftValid(){
+  if(!draft) return false;
+  const n = draftNums();
+  const pOk = n.pulse === null || (n.pulse >= 30 && n.pulse <= 220);
+  return n.sys >= 60 && n.sys <= 300 && n.dia >= 30 && n.dia <= 200 && n.dia < n.sys && pOk;
+}
+function saveDraft(){
+  if(!draftValid()) return;
+  const n = draftNums();
+  readings.unshift({
+    id: Date.now() + "-" + Math.random().toString(36).slice(2,7),
+    ts: new Date().toISOString(),
+    sys:n.sys, dia:n.dia, pulse:n.pulse,
+    arm:draft.arm, period:draft.period, med:draft.med,
+    note:draft.note.trim(), source:draft.source
+  });
+  save();
+  draft = null; preview = null; msg = null; render();
+}
+
+/* ---------- serie ---------- */
+function series(){
+  const cutoff = Date.now() - 7*86400000;
+  const byDay = {};
+  readings.forEach(r => {
+    if(new Date(r.ts).getTime() < cutoff) return;
+    (byDay[dayKey(r.ts)] = byDay[dayKey(r.ts)] || []).push(r);
+  });
+  const days = Object.keys(byDay).sort();
+  if(!days.length) return null;
+  const counted = days.length >= 2 ? days.slice(1) : days;
+  const pool = counted.reduce((a,d) => a.concat(byDay[d]), []);
+  const avg = k => Math.round(pool.reduce((s,r) => s + (r[k]||0), 0) / pool.length);
+  return {days:days.length, discarded:days.length >= 2, sys:avg("sys"), dia:avg("dia"),
+          count:pool.length,
+          mornings:pool.filter(r => r.period === "Mañana").length,
+          nights:pool.filter(r => r.period === "Noche").length};
+}
+
+/* ---------- exportar ---------- */
+function download(name, blob){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function exportCSV(){
+  const head = "fecha,hora,sistolica,diastolica,pulso,brazo,momento,medicacion,nota";
+  const rows = readings.slice().reverse().map(r => {
+    const d = new Date(r.ts);
+    return [d.toLocaleDateString("es-ES"),
+            d.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}),
+            r.sys, r.dia, r.pulse == null ? "" : r.pulse,
+            r.arm, r.period, r.med ? "sí" : "no",
+            '"' + String(r.note||"").replace(/"/g,'""') + '"'].join(",");
+  });
+  download("tension-" + dayKey(Date.now()) + ".csv",
+           new Blob(["\ufeff" + [head].concat(rows).join("\n")], {type:"text/csv;charset=utf-8"}));
+}
+function backup(){
+  download("copia-tension-" + dayKey(Date.now()) + ".json",
+           new Blob([JSON.stringify(readings)], {type:"application/json"}));
+}
+function restore(e){
+  const f = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if(!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try{
+      const arr = JSON.parse(r.result);
+      if(!Array.isArray(arr)) throw new Error();
+      const seen = {};
+      readings.concat(arr).forEach(x => { if(x && x.id) seen[x.id] = x; });
+      readings = Object.values(seen).sort((a,b) => new Date(b.ts) - new Date(a.ts));
+      save(); setMsg("Copia restaurada: " + readings.length + " lecturas.", "info");
+    }catch(err){ setMsg("Ese archivo no es una copia válida.", "err"); }
+  };
+  r.readAsText(f);
+}
+
+/* ---------- render ---------- */
+function render(){
+  const lcd = document.getElementById("lcd");
+  const last = readings[0];
+
+  if(draft){
+    const n = draftNums(), c = draftValid() ? classify(n.sys, n.dia) : null;
+    lcd.innerHTML =
+      (preview ? '<img class="thumb" src="' + preview + '" alt="Foto del tensiómetro">' : "") +
+      '<div class="lcd-label">Comprueba las cifras</div>' +
+      '<div class="readout">' +
+        '<input class="field" id="fSys" inputmode="numeric" maxlength="3" aria-label="Sistólica" value="' + esc(draft.sys) + '">' +
+        '<span class="slash">/</span>' +
+        '<input class="field" id="fDia" inputmode="numeric" maxlength="3" aria-label="Diastólica" value="' + esc(draft.dia) + '">' +
+        '<span class="unit">mmHg</span>' +
+        '<span class="pulse"><input class="field sm" id="fPul" inputmode="numeric" maxlength="3" aria-label="Pulso" value="' + esc(draft.pulse) + '">' +
+        '<div class="lcd-label" style="margin-top:2px">ppm</div></span>' +
+      '</div>' +
+      (c ? '<div class="lcd-foot"><span style="font-weight:700">' + c.label + '</span><span>' +
+           (draft.source === "foto" ? "leído de la foto" : "escrito a mano") + '</span></div>' : "");
+
+    [["fSys","sys"],["fDia","dia"],["fPul","pulse"]].forEach(([id,k]) => {
+      const el = document.getElementById(id);
+      el.addEventListener("input", () => {
+        draft[k] = el.value.replace(/\D/g,"");
+        el.value = draft[k];
+        renderActions(); renderFoot();
+      });
+    });
+  } else if(last){
+    const c = classify(last.sys, last.dia);
+    lcd.innerHTML =
+      '<div class="lcd-label">Última lectura</div>' +
+      '<div class="readout">' +
+        '<span class="digits"><span class="ghost big" aria-hidden="true">888</span><span class="big">' + last.sys + '</span></span>' +
+        '<span class="slash">/</span>' +
+        '<span class="digits"><span class="ghost big" aria-hidden="true">888</span><span class="big">' + last.dia + '</span></span>' +
+        '<span class="unit">mmHg</span>' +
+        (last.pulse != null ? '<span class="pulse"><b>' + last.pulse + '</b><div class="lcd-label" style="margin-top:2px">ppm</div></span>' : "") +
+      '</div>' +
+      '<div class="lcd-foot"><span style="font-weight:700">' + c.label + '</span><span>' +
+      whenText(last.ts) + ' · brazo ' + last.arm.toLowerCase() + '</span></div>';
+  } else {
+    lcd.innerHTML = '<div class="lcd-label">Sin lecturas</div>' +
+      '<p class="empty">Haz una foto a la pantalla de tu tensiómetro, carga una que ya tengas o escribe las cifras a mano.</p>';
+  }
+
+  renderMsgs(); renderActions(); renderSeries(); renderHistory();
+}
+
+function renderMsgs(){
+  const box = document.getElementById("msgs");
+  let h = "";
+  if(scanning) h += '<div class="alert info"><span class="spin">▮</span> Leyendo los dígitos de la foto…</div>';
+  if(msg && !scanning) h += '<div class="alert ' + (msgKind === "info" ? "info" : "") + '">' + esc(msg) + '</div>';
+  if(draft && draftValid()){
+    const n = draftNums();
+    if(n.sys >= 180 || n.dia >= 110)
+      h += '<div class="alert">Cifra muy alta. Descansa cinco minutos sentado y repite la medición. ' +
+           'Si se confirma, coméntaselo a tu médico; si además notas dolor en el pecho, dificultad para respirar ' +
+           'o alteración del habla o la visión, busca atención urgente.</div>';
+  }
+  box.innerHTML = h;
+}
+function renderFoot(){ renderMsgs(); }
+
+function renderActions(){
+  const box = document.getElementById("actions");
+  if(draft){
+    const arms = ["Izquierdo","Derecho"].map(a =>
+      '<button class="chip" data-arm="' + a + '" aria-pressed="' + (draft.arm === a) + '">Brazo ' + a.toLowerCase() + '</button>').join("");
+    const pers = ["Mañana","Noche"].map(p =>
+      '<button class="chip" data-per="' + p + '" aria-pressed="' + (draft.period === p) + '">' + p + '</button>').join("");
+    box.innerHTML =
+      '<div class="opts">' + arms + pers +
+        '<button class="chip" id="cMed" aria-pressed="' + draft.med + '">Medicación tomada</button></div>' +
+      '<input class="input" id="cNote" placeholder="Nota (opcional): cómo te encontrabas, si habías andado…" value="' + esc(draft.note) + '">' +
+      '<div class="row"><button class="btn" id="bSave"' + (draftValid() ? "" : " disabled") + '>Guardar lectura</button>' +
+      '<button class="btn ghost" id="bCancel">Descartar</button></div>' +
+      (!draftValid() && (draft.sys || draft.dia)
+        ? '<p class="note">Revisa las cifras: la sistólica debe ser mayor que la diastólica.</p>' : "");
+
+    box.querySelectorAll("[data-arm]").forEach(b => b.onclick = () => { draft.arm = b.dataset.arm; renderActions(); });
+    box.querySelectorAll("[data-per]").forEach(b => b.onclick = () => { draft.period = b.dataset.per; renderActions(); });
+    document.getElementById("cMed").onclick = () => { draft.med = !draft.med; renderActions(); };
+    document.getElementById("cNote").oninput = e => { draft.note = e.target.value; };
+    document.getElementById("bSave").onclick = saveDraft;
+    document.getElementById("bCancel").onclick = () => { draft = null; preview = null; msg = null; render(); };
+  } else {
+    box.innerHTML =
+      '<div class="row"><button class="btn" id="bShot">Hacer foto</button>' +
+      '<button class="btn ghost" id="bPick">Cargar foto</button>' +
+      '<button class="btn ghost" id="bManual">Escribir a mano</button></div>';
+    document.getElementById("bShot").onclick = () => document.getElementById("shot").click();
+    document.getElementById("bPick").onclick = () => document.getElementById("pick").click();
+    document.getElementById("bManual").onclick = () => { draft = blankDraft("manual"); preview = null; msg = null; render(); };
+  }
+}
+
+function renderSeries(){
+  const box = document.getElementById("seriesCard");
+  const s = series();
+  if(!s){ box.innerHTML = ""; return; }
+  let ticks = "";
+  for(let i = 0; i < 7; i++){
+    const cls = i < s.days ? (i === 0 && s.discarded ? "tick skip" : "tick on") : "tick";
+    ticks += '<div class="' + cls + '"></div>';
+  }
+  box.innerHTML =
+    '<div class="card"><h2>Serie de siete días</h2><div class="track">' + ticks + '</div>' +
+    '<div class="avg">' + s.sys + ' / ' + s.dia +
+    '<span style="font-size:13px;font-weight:500;color:var(--ink-2);margin-left:8px">mmHg de media</span></div>' +
+    '<p class="note">Día ' + s.days + ' de 7 · ' + s.count + ' lecturas (' + s.mornings + ' de mañana, ' + s.nights + ' de noche). ' +
+    (s.discarded ? "El primer día queda fuera de la media, como marca el protocolo."
+                 : "El primer día se descartará de la media en cuanto haya un segundo.") + '</p>' +
+    '<p class="note">La pauta habitual son siete días seguidos con dos tomas por la mañana y dos por la noche, ' +
+    'separadas un minuto. Esa media vale más para tu médico que una lectura suelta.</p></div>';
+}
+
+function renderHistory(){
+  const box = document.getElementById("historyCard");
+  if(!readings.length){ box.innerHTML = ""; return; }
+  const rows = readings.slice(0,60).map(r => {
+    const c = classify(r.sys, r.dia), d = new Date(r.ts);
+    const tail = confirmId === r.id
+      ? '<button class="btn slim danger" data-del="' + r.id + '">Borrar</button>' +
+        '<button class="btn slim ghost" data-no="1">No</button>'
+      : '<button class="x" aria-label="Borrar lectura" data-ask="' + r.id + '">×</button>';
+    return '<div class="item"><span class="dot" style="background:' + c.color + '"></span>' +
+      '<span class="val">' + r.sys + '/' + r.dia +
+      (r.pulse != null ? '<span style="color:var(--ink-3);font-weight:500"> ·' + r.pulse + '</span>' : "") + '</span>' +
+      '<span class="meta">' + d.toLocaleDateString("es-ES",{day:"numeric",month:"short"}) + " " +
+      d.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}) +
+      '<span style="color:' + c.color + ';font-weight:700"> · ' + c.label + '</span>' +
+      (r.med ? " · con medicación" : "") +
+      (r.note ? "<br>" + esc(r.note) : "") + '</span>' + tail + '</div>';
+  }).join("");
+  box.innerHTML = '<div class="card"><h2>Historial · ' + readings.length + ' lecturas</h2>' + rows +
+    '<div class="row"><button class="btn ghost slim" id="bCsv">Exportar CSV</button></div></div>';
+  box.querySelectorAll("[data-ask]").forEach(b => b.onclick = () => { confirmId = b.dataset.ask; renderHistory(); });
+  box.querySelectorAll("[data-no]").forEach(b => b.onclick = () => { confirmId = null; renderHistory(); });
+  box.querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
+    readings = readings.filter(x => x.id !== b.dataset.del);
+    confirmId = null; save(); render();
+  });
+  document.getElementById("bCsv").onclick = exportCSV;
+}
+
+/* ---------- ajustes ---------- */
+const settings = document.getElementById("settings");
+document.getElementById("settingsToggle").onclick = () => {
+  settings.classList.toggle("hide");
+  document.getElementById("apiKey").value = getKey();
+  document.getElementById("modelId").value = getModel();
+};
+document.getElementById("closeSettings").onclick = () => settings.classList.add("hide");
+document.getElementById("saveKey").onclick = async () => {
+  const key = document.getElementById("apiKey").value.trim();
+  const manual = document.getElementById("modelId").value.trim();
+  const out = document.getElementById("keyMsg");
+  if(!key){ localStorage.removeItem(K_KEY); out.innerHTML = '<div class="alert info">Clave borrada. Puedes seguir escribiendo las cifras a mano.</div>'; return; }
+  localStorage.setItem(K_KEY, key);
+  out.innerHTML = '<div class="alert info"><span class="spin">▮</span> Comprobando…</div>';
+  try{
+    const model = manual || await pickModel(key);
+    localStorage.setItem(K_MODEL, model);
+    document.getElementById("modelId").value = model;
+    out.innerHTML = '<div class="alert info">Listo. Se usará ' + esc(model) + '.</div>';
+  }catch(err){
+    out.innerHTML = '<div class="alert">' + esc(err.message) + '</div>';
+  }
+};
+document.getElementById("backupBtn").onclick = backup;
+document.getElementById("restoreBtn").onclick = () => document.getElementById("restoreFile").click();
+document.getElementById("restoreFile").onchange = restore;
+document.getElementById("shot").onchange = handleFile;
+document.getElementById("pick").onchange = handleFile;
+
+/* ---------- arranque ---------- */
+load();
+render();
+if("serviceWorker" in navigator){
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
