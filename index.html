@@ -206,6 +206,7 @@ const K_DATA = "tension.readings", K_KEY = "tension.apikey", K_MODEL = "tension.
 
 let readings = [];
 let draft = null, preview = null, scanning = false, scanMsg = null, msg = null, msgKind = "err", confirmId = null;
+let lastShot = null, canRetry = false;
 
 /* ---------- saneado ---------- */
 /* Nada entra en `readings` sin pasar por aquí: ni el localStorage ni una copia
@@ -435,27 +436,47 @@ function blankDraft(source){
           med:false, note:"", source: source || "manual", ts: toLocalInput(now)};
 }
 
+/* La foto preparada se guarda aparte para poder reintentar la lectura
+   sin obligar a repetir la captura. */
+async function scanShot(img){
+  msg = null; scanning = true; scanMsg = null; canRetry = false; render();
+  try{
+    const r = await readPhoto(img.base64);
+    if(!draft) draft = blankDraft("foto");
+    draft.source = "foto";
+    draft.sys = r.sys != null ? String(r.sys) : "";
+    draft.dia = r.dia != null ? String(r.dia) : "";
+    draft.pulse = r.pulse != null ? String(r.pulse) : "";
+    if(r.sys == null || r.dia == null)
+      setMsgQuiet("Alguna cifra no se ha leÃ­do bien. Complétala a mano antes de guardar.");
+    else if(r.confianza === "baja")
+      setMsgQuiet("La lectura no es del todo nítida. Compárala con la foto antes de guardar.");
+  }catch(err){
+    setMsgQuiet(err.message || "No se han podido extraer los números de esa foto.");
+    if(!draft) draft = blankDraft("manual");
+    canRetry = true;
+  }finally{
+    scanning = false; scanMsg = null; render();
+  }
+}
+
 async function handleFile(e){
   const file = e.target.files && e.target.files[0];
   e.target.value = "";
   if(!file) return;
-  msg = null; scanning = true; scanMsg = null; draft = null; preview = null; render();
+  draft = null; preview = null; lastShot = null; canRetry = false;
+  msg = null; scanning = true; render();
+  let img;
   try{
-    const img = await prepareImage(file);
-    preview = img.dataUrl; render();
-    const r = await readPhoto(img.base64);
-    draft = blankDraft("foto");
-    draft.sys = r.sys != null ? String(r.sys) : "";
-    draft.dia = r.dia != null ? String(r.dia) : "";
-    draft.pulse = r.pulse != null ? String(r.pulse) : "";
-    if(r.sys == null || r.dia == null) setMsgQuiet("Alguna cifra no se ha leído bien. Complétala a mano antes de guardar.");
-    else if(r.confianza === "baja") setMsgQuiet("La lectura no es del todo nítida. Compárala con la foto antes de guardar.");
+    img = await prepareImage(file);
   }catch(err){
-    setMsgQuiet(err.message || "No se han podido extraer los números de esa foto.");
-    draft = blankDraft("manual");
-  }finally{
-    scanning = false; scanMsg = null; render();
+    scanning = false;
+    setMsg(err.message || "No se ha podido abrir esa imagen.", "err");
+    return;
   }
+  lastShot = img;
+  preview = img.dataUrl;
+  await scanShot(img);
 }
 function setMsgQuiet(t){ msg = t; msgKind = "err"; }
 
@@ -485,7 +506,7 @@ function saveDraft(){
   });
   readings.sort((a,b) => new Date(b.ts) - new Date(a.ts));
   save(); scheduleSync();
-  draft = null; preview = null; msg = null; render();
+  draft = null; preview = null; msg = null; lastShot = null; canRetry = false; render();
 }
 
 /* ---------- serie ---------- */
@@ -635,6 +656,7 @@ function renderActions(){
       '<input class="input" id="cWhen" type="datetime-local" value="' + esc(draft.ts) + '"></label>' +
       '<input class="input" id="cNote" placeholder="Nota (opcional): cómo te encontrabas, si habías andado…" value="' + esc(draft.note) + '">' +
       '<div class="row"><button class="btn" id="bSave"' + (draftValid() ? "" : " disabled") + '>Guardar lectura</button>' +
+      (canRetry && lastShot ? '<button class="btn ghost" id="bRetry">Reintentar lectura</button>' : "") +
       '<button class="btn ghost" id="bCancel">Descartar</button></div>' +
       (!draftValid() && (draft.sys || draft.dia)
         ? '<p class="note">Revisa las cifras: la sistólica debe ser mayor que la diastólica.</p>' : "");
@@ -645,7 +667,11 @@ function renderActions(){
     document.getElementById("cWhen").onchange = e => { draft.ts = e.target.value; };
     document.getElementById("cNote").oninput = e => { draft.note = e.target.value; };
     document.getElementById("bSave").onclick = saveDraft;
-    document.getElementById("bCancel").onclick = () => { draft = null; preview = null; msg = null; render(); };
+    const rt = document.getElementById("bRetry");
+    if(rt) rt.onclick = () => { if(lastShot) scanShot(lastShot); };
+    document.getElementById("bCancel").onclick = () => {
+      draft = null; preview = null; msg = null; lastShot = null; canRetry = false; render();
+    };
   } else {
     box.innerHTML =
       '<div class="row"><button class="btn" id="bShot">Hacer foto</button>' +
