@@ -203,7 +203,7 @@ h1{font-size:27px;font-weight:750;letter-spacing:-.025em;margin:0 0 20px;line-he
 const K_DATA = "tension.readings", K_KEY = "tension.apikey", K_MODEL = "tension.model";
 
 let readings = [];
-let draft = null, preview = null, scanning = false, msg = null, msgKind = "err", confirmId = null;
+let draft = null, preview = null, scanning = false, scanMsg = null, msg = null, msgKind = "err", confirmId = null;
 
 /* ---------- saneado ---------- */
 /* Nada entra en `readings` sin pasar por aquí: ni el localStorage ni una copia
@@ -340,32 +340,61 @@ const PROMPT =
   "Responde únicamente con un objeto JSON con las claves sys, dia, pulse (números enteros o null) y confianza " +
   '("alta", "media" o "baja"). Usa null en cualquier cifra que no se lea con seguridad. No inventes ni redondees.';
 
+/* 429/500/503 son baches pasajeros: se reintentan y NO invalidan el modelo.
+   Solo un 400/404 significa que el modelo guardado ya no sirve. */
+const TRANSIENT = [429, 500, 502, 503, 504];
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
 async function readPhoto(base64){
   const key = getKey();
   if(!key) throw new Error("Añade tu clave de API en Ajustes para leer fotos.");
   let model = getModel();
   if(!model){ model = await pickModel(key); localStorage.setItem(K_MODEL, model); }
-  const res = await fetch(API + "models/" + model + ":generateContent", {
-    method:"POST",
-    headers:{"Content-Type":"application/json", "x-goog-api-key":key},
-    body: JSON.stringify({
-      contents:[{role:"user", parts:[
-        {inline_data:{mime_type:"image/jpeg", data:base64}},
-        {text: PROMPT}
-      ]}],
-      generationConfig:{temperature:0, responseMimeType:"application/json"}
-    })
+
+  const body = JSON.stringify({
+    contents:[{role:"user", parts:[
+      {inline_data:{mime_type:"image/jpeg", data:base64}},
+      {text: PROMPT}
+    ]}],
+    generationConfig:{temperature:0, responseMimeType:"application/json"}
   });
-  if(res.status === 429) throw new Error("Has llegado al límite gratuito de peticiones. Espera un minuto o escribe las cifras a mano.");
+
+  let res, last = "";
+  for(let intento = 0; intento < 3; intento++){
+    if(intento > 0){
+      scanMsg = "El servidor de Google está saturado. Reintentando (" + (intento+1) + " de 3)…";
+      renderMsgs();
+      await wait(intento * 2500);
+    }
+    res = await fetch(API + "models/" + model + ":generateContent", {
+      method:"POST",
+      headers:{"Content-Type":"application/json", "x-goog-api-key":key},
+      body: body
+    });
+    if(res.ok) break;
+    last = res.status;
+    if(TRANSIENT.indexOf(res.status) < 0) break;
+  }
+  scanMsg = null;
+
   if(!res.ok){
+    if(res.status === 429)
+      throw new Error("Has llegado al límite gratuito de peticiones. Espera un minuto o escribe las cifras a mano.");
+    if(TRANSIENT.indexOf(res.status) >= 0)
+      throw new Error("Google sigue saturado (" + res.status + ") tras tres intentos. Prueba de nuevo en un minuto o escribe las cifras a mano.");
     localStorage.removeItem(K_MODEL);
-    const t = await res.text();
+    const t = await res.text().catch(() => "");
     throw new Error("La lectura ha fallado (" + res.status + "). " + (t.slice(0,120) || ""));
   }
+
   const data = await res.json();
   const parts = ((data.candidates || [])[0] || {}).content;
   const text = ((parts && parts.parts) || []).map(p => p.text || "").join("");
-  return JSON.parse(text.replace(/```json|```/g, "").trim());
+  try {
+    return JSON.parse(text.replace(/```json|```/g, "").trim());
+  } catch(e){
+    throw new Error("Google ha respondido algo que no se entiende. Escribe las cifras a mano.");
+  }
 }
 
 /* ---------- flujo ---------- */
@@ -379,7 +408,7 @@ async function handleFile(e){
   const file = e.target.files && e.target.files[0];
   e.target.value = "";
   if(!file) return;
-  msg = null; scanning = true; draft = null; preview = null; render();
+  msg = null; scanning = true; scanMsg = null; draft = null; preview = null; render();
   try{
     const img = await prepareImage(file);
     preview = img.dataUrl; render();
@@ -394,7 +423,7 @@ async function handleFile(e){
     setMsgQuiet(err.message || "No se han podido extraer los números de esa foto.");
     draft = blankDraft("manual");
   }finally{
-    scanning = false; render();
+    scanning = false; scanMsg = null; render();
   }
 }
 function setMsgQuiet(t){ msg = t; msgKind = "err"; }
@@ -546,7 +575,8 @@ function render(){
 function renderMsgs(){
   const box = document.getElementById("msgs");
   let h = "";
-  if(scanning) h += '<div class="alert info"><span class="spin">▮</span> Leyendo los dígitos de la foto…</div>';
+  if(scanning) h += '<div class="alert info"><span class="spin">▮</span> ' +
+    esc(scanMsg || "Leyendo los dígitos de la foto…") + '</div>';
   if(msg && !scanning) h += '<div class="alert ' + (msgKind === "info" ? "info" : "") + '">' + esc(msg) + '</div>';
   if(draft && draftValid()){
     const n = draftNums();
