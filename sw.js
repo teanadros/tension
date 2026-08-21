@@ -1,4 +1,4 @@
-const CACHE = "tension-v4";
+const CACHE = "tension-v6";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -15,8 +15,8 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  // Las llamadas a la API siempre van a la red, nunca a caché.
-  if (url.hostname.endsWith("googleapis.com")) return;
+  // Nada de otros orígenes pasa por caché: ni la API de Gemini ni el login de Google.
+  if (url.origin !== location.origin) return;
   if (e.request.method !== "GET") return;
 
   e.respondWith(

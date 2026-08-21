@@ -2,7 +2,9 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://accounts.google.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://generativelanguage.googleapis.com https://www.googleapis.com https://oauth2.googleapis.com https://accounts.google.com; frame-src https://accounts.google.com; manifest-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
 <title>Diario de tensión</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <meta name="theme-color" content="#0f1a1f">
@@ -148,6 +150,20 @@ h1{font-size:27px;font-weight:750;letter-spacing:-.025em;margin:0 0 20px;line-he
       <button class="btn ghost slim" id="closeSettings">Cerrar</button>
     </div>
     <div id="keyMsg"></div>
+    <h2 style="margin-top:22px">Copia en Google Drive</h2>
+    <p class="note" style="margin-top:0">
+      Guarda el diario en tu Drive como <b>diario-de-tension.json</b>. La app usa el permiso mínimo:
+      solo puede ver el archivo que ella misma crea, no el resto de tu Drive.
+    </p>
+    <input class="input" id="gcid" placeholder="ID de cliente de OAuth" autocomplete="off">
+    <div class="row">
+      <button class="btn ghost slim" id="gConnect">Conectar</button>
+      <button class="btn ghost slim" id="gUp">Subir ahora</button>
+      <button class="btn ghost slim" id="gDown">Traer de Drive</button>
+    </div>
+    <div class="opts"><button class="chip" id="gAuto">Subir automáticamente</button></div>
+    <div id="gMsg"></div>
+
     <h2 style="margin-top:22px">Copia de seguridad</h2>
     <p class="note" style="margin-top:0">Los datos viven en este navegador. Si lo borras, se van. Guarda una copia de vez en cuando.</p>
     <div class="row">
@@ -189,10 +205,41 @@ const K_DATA = "tension.readings", K_KEY = "tension.apikey", K_MODEL = "tension.
 let readings = [];
 let draft = null, preview = null, scanning = false, msg = null, msgKind = "err", confirmId = null;
 
+/* ---------- saneado ---------- */
+/* Nada entra en `readings` sin pasar por aquí: ni el localStorage ni una copia
+   restaurada son de fiar. Devuelve null si la lectura no es válida. */
+function cleanReading(x){
+  if(!x || typeof x !== "object") return null;
+  const int = (v, lo, hi) => {
+    const n = typeof v === "number" ? Math.round(v) : parseInt(v, 10);
+    return Number.isFinite(n) && n >= lo && n <= hi ? n : null;
+  };
+  const sys = int(x.sys, 60, 300), dia = int(x.dia, 30, 200);
+  if(sys == null || dia == null || dia >= sys) return null;
+  const t = new Date(x.ts);
+  if(isNaN(t.getTime())) return null;
+  const str = (v, max) => typeof v === "string" ? v.slice(0, max) : "";
+  const one = (v, opts) => opts.indexOf(v) >= 0 ? v : opts[0];
+  return {
+    id: str(x.id, 64) || (Date.now() + "-" + Math.random().toString(36).slice(2,7)),
+    ts: t.toISOString(),
+    sys: sys, dia: dia, pulse: int(x.pulse, 30, 220),
+    arm: one(x.arm, ["Izquierdo","Derecho"]),
+    period: one(x.period, ["Mañana","Noche"]),
+    med: x.med === true,
+    note: str(x.note, 300),
+    source: one(x.source, ["manual","foto"])
+  };
+}
+function cleanAll(arr){
+  return (Array.isArray(arr) ? arr : []).map(cleanReading).filter(Boolean);
+}
+
 /* ---------- almacenamiento ---------- */
 function load(){
-  try { readings = JSON.parse(localStorage.getItem(K_DATA) || "[]"); }
+  try { readings = cleanAll(JSON.parse(localStorage.getItem(K_DATA) || "[]")); }
   catch(e){ readings = []; }
+  readings.sort((a,b) => new Date(b.ts) - new Date(a.ts));
 }
 function save(){
   try { localStorage.setItem(K_DATA, JSON.stringify(readings)); }
@@ -220,6 +267,13 @@ function toLocalInput(d){
   const p = n => String(n).padStart(2,"0");
   return d.getFullYear() + "-" + p(d.getMonth()+1) + "-" + p(d.getDate()) +
          "T" + p(d.getHours()) + ":" + p(d.getMinutes());
+}
+/* Fantasma del LCD: tantos ochos como dígitos tenga el valor, para que quede
+   justo detrás y no sobresalga por la derecha. */
+function lcdDigits(v){
+  const t = String(v);
+  return '<span class="digits"><span class="ghost big" aria-hidden="true">' +
+         "8".repeat(t.length) + '</span><span class="big">' + esc(t) + '</span></span>';
 }
 function whenText(ts){
   const d = new Date(ts), mins = Math.round((Date.now() - d.getTime())/60000);
@@ -370,7 +424,7 @@ function saveDraft(){
     note:draft.note.trim(), source:draft.source
   });
   readings.sort((a,b) => new Date(b.ts) - new Date(a.ts));
-  save();
+  save(); scheduleSync();
   draft = null; preview = null; msg = null; render();
 }
 
@@ -426,10 +480,13 @@ function restore(e){
     try{
       const arr = JSON.parse(r.result);
       if(!Array.isArray(arr)) throw new Error();
+      const ok = cleanAll(arr), bad = arr.length - ok.length;
       const seen = {};
-      readings.concat(arr).forEach(x => { if(x && x.id) seen[x.id] = x; });
+      readings.concat(ok).forEach(x => { seen[x.id] = x; });
       readings = Object.values(seen).sort((a,b) => new Date(b.ts) - new Date(a.ts));
-      save(); setMsg("Copia restaurada: " + readings.length + " lecturas.", "info");
+      save(); scheduleSync();
+      setMsg("Copia restaurada: " + readings.length + " lecturas." +
+             (bad > 0 ? " Se han descartado " + bad + " entradas no válidas." : ""), "info");
     }catch(err){ setMsg("Ese archivo no es una copia válida.", "err"); }
   };
   r.readAsText(f);
@@ -469,9 +526,9 @@ function render(){
     lcd.innerHTML =
       '<div class="lcd-label">Última lectura</div>' +
       '<div class="readout">' +
-        '<span class="digits"><span class="ghost big" aria-hidden="true">888</span><span class="big">' + last.sys + '</span></span>' +
+        lcdDigits(last.sys) +
         '<span class="slash">/</span>' +
-        '<span class="digits"><span class="ghost big" aria-hidden="true">888</span><span class="big">' + last.dia + '</span></span>' +
+        lcdDigits(last.dia) +
         '<span class="unit">mmHg</span>' +
         (last.pulse != null ? '<span class="pulse"><b>' + last.pulse + '</b><div class="lcd-label" style="margin-top:2px">ppm</div></span>' : "") +
       '</div>' +
@@ -582,7 +639,7 @@ function renderHistory(){
   box.querySelectorAll("[data-no]").forEach(b => b.onclick = () => { confirmId = null; renderHistory(); });
   box.querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
     readings = readings.filter(x => x.id !== b.dataset.del);
-    confirmId = null; save(); render();
+    confirmId = null; save(); scheduleSync(); render();
   });
   document.getElementById("bCsv").onclick = exportCSV;
 }
@@ -852,12 +909,175 @@ function setView(v){
 }
 document.getElementById("statsToggle").onclick = () => setView(view === "stats" ? "diario" : "stats");
 
+/* ---------- Google Drive ---------- */
+const K_CID = "tension.gcid", K_FID = "tension.driveid",
+      K_AUTO = "tension.driveauto", K_SYNC = "tension.drivelast";
+const DRIVE_NAME = "diario-de-tension.json";
+const SCOPE = "https://www.googleapis.com/auth/drive.file";
+let gToken = null, gExp = 0, syncTimer = null;
+
+function loadGIS(){
+  return new Promise((res, rej) => {
+    if(window.google && google.accounts && google.accounts.oauth2) return res();
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.async = true;
+    s.onload = () => res();
+    s.onerror = () => rej(new Error("No se ha podido cargar el conector de Google. ¿Sin conexión?"));
+    document.head.appendChild(s);
+  });
+}
+
+/* interactive=true fuerza la pantalla de permisos; false intenta en silencio. */
+function getToken(interactive){
+  const cid = (localStorage.getItem(K_CID) || "").trim();
+  if(!cid) return Promise.reject(new Error("Falta el ID de cliente de OAuth. Pégalo aquí arriba."));
+  if(!interactive && gToken && Date.now() < gExp - 60000) return Promise.resolve(gToken);
+  return loadGIS().then(() => new Promise((res, rej) => {
+    let done = false;
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: cid,
+      scope: SCOPE,
+      prompt: interactive ? "consent" : "",
+      callback: (r) => {
+        done = true;
+        if(r && r.access_token){
+          gToken = r.access_token;
+          gExp = Date.now() + (parseInt(r.expires_in,10) || 3600) * 1000;
+          res(gToken);
+        } else {
+          rej(new Error("Google no ha devuelto ningún permiso."));
+        }
+      },
+      error_callback: (e) => {
+        done = true;
+        rej(new Error(e && e.type === "popup_closed"
+          ? "Has cerrado la ventana de Google sin autorizar."
+          : "Google ha rechazado la conexión. Revisa que el ID de cliente y el origen autorizado sean correctos."));
+      }
+    });
+    client.requestAccessToken();
+    setTimeout(() => { if(!done) rej(new Error("Google no ha respondido. Comprueba que el navegador no bloquea las ventanas emergentes.")); }, 120000);
+  }));
+}
+
+async function driveCall(url, opts){
+  const res = await fetch(url, opts);
+  if(res.status === 401 || res.status === 403){
+    gToken = null;
+    throw new Error("Google ha rechazado la petición (" + res.status + "). Pulsa Conectar otra vez.");
+  }
+  if(!res.ok) throw new Error("Drive ha respondido " + res.status + ".");
+  return res;
+}
+
+async function driveFindId(token){
+  const cached = localStorage.getItem(K_FID);
+  if(cached) return cached;
+  const q = encodeURIComponent("name='" + DRIVE_NAME + "' and trashed=false");
+  const res = await driveCall("https://www.googleapis.com/drive/v3/files?q=" + q + "&fields=files(id)&pageSize=1",
+    {headers:{Authorization:"Bearer " + token}});
+  const d = await res.json();
+  const f = (d.files || [])[0];
+  if(f){ localStorage.setItem(K_FID, f.id); return f.id; }
+  return null;
+}
+
+async function driveUpload(){
+  const token = await getToken(false);
+  const id = await driveFindId(token);
+  const body = JSON.stringify(readings);
+  let res;
+  if(id){
+    res = await driveCall("https://www.googleapis.com/upload/drive/v3/files/" + id + "?uploadType=media&fields=id",
+      {method:"PATCH", headers:{Authorization:"Bearer " + token, "Content-Type":"application/json"}, body: body});
+  } else {
+    const b = "tension" + Date.now();
+    const meta = JSON.stringify({name: DRIVE_NAME, mimeType: "application/json"});
+    const multipart = "--" + b + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + meta +
+      "\r\n--" + b + "\r\nContent-Type: application/json\r\n\r\n" + body + "\r\n--" + b + "--";
+    res = await driveCall("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
+      {method:"POST", headers:{Authorization:"Bearer " + token, "Content-Type":"multipart/related; boundary=" + b}, body: multipart});
+  }
+  const d = await res.json().catch(() => ({}));
+  if(d.id) localStorage.setItem(K_FID, d.id);
+  localStorage.setItem(K_SYNC, new Date().toISOString());
+  return readings.length;
+}
+
+async function driveDownload(){
+  const token = await getToken(false);
+  const id = await driveFindId(token);
+  if(!id) throw new Error("Todavía no hay ninguna copia en tu Drive.");
+  const res = await driveCall("https://www.googleapis.com/drive/v3/files/" + id + "?alt=media",
+    {headers:{Authorization:"Bearer " + token}});
+  const arr = await res.json();
+  if(!Array.isArray(arr)) throw new Error("El archivo de Drive no tiene el formato esperado.");
+  const ok = cleanAll(arr), before = readings.length;
+  const seen = {};
+  readings.concat(ok).forEach(x => { seen[x.id] = x; });
+  readings = Object.values(seen).sort((a,b) => new Date(b.ts) - new Date(a.ts));
+  save(); render();
+  return readings.length - before;
+}
+
+/* Fusiona, nunca pisa: si has anotado en el móvil y en el PC, se quedan las dos. */
+function scheduleSync(){
+  if(localStorage.getItem(K_AUTO) !== "1") return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    driveUpload().then(renderDrive).catch(() => { renderDrive(); });
+  }, 4000);
+}
+
+function renderDrive(){
+  const out = document.getElementById("gMsg");
+  const auto = localStorage.getItem(K_AUTO) === "1";
+  const chip = document.getElementById("gAuto");
+  if(chip) chip.setAttribute("aria-pressed", auto);
+  if(!out) return;
+  const last = localStorage.getItem(K_SYNC);
+  out.innerHTML = last
+    ? '<p class="note">Última subida: ' + esc(whenText(last)) + '.</p>'
+    : '<p class="note">Todavía no se ha subido nada.</p>';
+}
+
+function driveMsg(text, kind){
+  document.getElementById("gMsg").innerHTML =
+    '<div class="alert' + (kind === "info" ? " info" : "") + '">' + esc(text) + '</div>';
+}
+function driveRun(fn, working, done){
+  driveMsg(working, "info");
+  fn().then(n => { driveMsg(typeof done === "function" ? done(n) : done, "info"); setTimeout(renderDrive, 4000); })
+      .catch(e => driveMsg(e.message || "Ha fallado.", "err"));
+}
+
+document.getElementById("gConnect").onclick = () => {
+  const cid = document.getElementById("gcid").value.trim();
+  if(cid) localStorage.setItem(K_CID, cid); else localStorage.removeItem(K_CID);
+  driveRun(() => getToken(true).then(() => driveFindId(gToken)),
+    "Abriendo la ventana de Google…", "Conectado. Ya puedes subir y traer copias.");
+};
+document.getElementById("gUp").onclick = () =>
+  driveRun(driveUpload, "Subiendo a Drive…", n => "Subidas " + n + " lecturas a tu Drive.");
+document.getElementById("gDown").onclick = () =>
+  driveRun(driveDownload, "Descargando de Drive…",
+    n => n > 0 ? "Añadidas " + n + " lecturas que no tenías aquí." : "Ya estabas al día, no había nada nuevo.");
+document.getElementById("gAuto").onclick = () => {
+  const on = localStorage.getItem(K_AUTO) === "1";
+  localStorage.setItem(K_AUTO, on ? "0" : "1");
+  renderDrive();
+  if(!on) scheduleSync();
+};
+
 /* ---------- ajustes ---------- */
 const settings = document.getElementById("settings");
 document.getElementById("settingsToggle").onclick = () => {
   settings.classList.toggle("hide");
   document.getElementById("apiKey").value = getKey();
   document.getElementById("modelId").value = getModel();
+  document.getElementById("gcid").value = localStorage.getItem(K_CID) || "";
+  renderDrive();
 };
 document.getElementById("closeSettings").onclick = () => settings.classList.add("hide");
 document.getElementById("saveKey").onclick = async () => {
@@ -885,6 +1105,7 @@ document.getElementById("pick").onchange = handleFile;
 /* ---------- arranque ---------- */
 load();
 render();
+if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 if("serviceWorker" in navigator){
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
 }
