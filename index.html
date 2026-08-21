@@ -39,11 +39,13 @@ h1{font-size:27px;font-weight:750;letter-spacing:-.025em;margin:0 0 20px;line-he
 .lcd-label{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(20,32,26,.55);margin-bottom:2px}
 .readout{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
 .digits{position:relative;font-family:var(--mono);line-height:.95}
-.digits .ghost{position:absolute;inset:0;color:var(--lcd-ink);opacity:.11;pointer-events:none;user-select:none}
 .big{font-size:52px;font-weight:700;color:var(--lcd-ink);letter-spacing:.01em}
+.lcdnum{display:block;width:auto;overflow:visible}
+.lcdnum .seg{fill:var(--lcd-ink);opacity:.075}
+.lcdnum .seg.on{opacity:1}
 .slash{font-size:34px;color:rgba(20,32,26,.45);font-family:var(--mono);padding-bottom:4px}
 .unit{font-family:var(--mono);font-size:11px;color:rgba(20,32,26,.6);padding-bottom:8px}
-.pulse{margin-left:auto;text-align:right;font-family:var(--mono);color:var(--lcd-ink);padding-bottom:4px}
+.pulse{margin-left:auto;color:var(--lcd-ink);padding-bottom:4px;display:flex;flex-direction:column;align-items:flex-end}
 .pulse b{font-size:26px;font-weight:700}
 .lcd-foot{margin-top:12px;padding-top:10px;border-top:1px solid rgba(20,32,26,.18);
           font-size:12px;color:rgba(20,32,26,.7);display:flex;justify-content:space-between;gap:10px}
@@ -268,12 +270,41 @@ function toLocalInput(d){
   return d.getFullYear() + "-" + p(d.getMonth()+1) + "-" + p(d.getDate()) +
          "T" + p(d.getHours()) + ":" + p(d.getMinutes());
 }
-/* Fantasma del LCD: tantos ochos como dígitos tenga el valor, para que quede
-   justo detrás y no sobresalga por la derecha. */
-function lcdDigits(v){
-  const t = String(v);
-  return '<span class="digits"><span class="ghost big" aria-hidden="true">' +
-         "8".repeat(t.length) + '</span><span class="big">' + esc(t) + '</span></span>';
+/* Display de siete segmentos.  Cada dígito son 7 polígonos biselados; los
+   apagados se quedan a muy baja opacidad, como en un LCD real.
+        a
+      f   b
+        g
+      e   c
+        d                                                              */
+const SEG_PTS = {
+  a:"9.5,0.5 26.5,0.5 30,4 26.5,7.5 9.5,7.5 6,4",
+  g:"9.5,25.5 26.5,25.5 30,29 26.5,32.5 9.5,32.5 6,29",
+  d:"9.5,50.5 26.5,50.5 30,54 26.5,57.5 9.5,57.5 6,54",
+  f:"0.5,9.5 4,6 7.5,9.5 7.5,23.5 4,27 0.5,23.5",
+  b:"28.5,9.5 32,6 35.5,9.5 35.5,23.5 32,27 28.5,23.5",
+  e:"0.5,34.5 4,31 7.5,34.5 7.5,48.5 4,52 0.5,48.5",
+  c:"28.5,34.5 32,31 35.5,34.5 35.5,48.5 32,52 28.5,48.5"
+};
+const SEG_ON = {
+  "0":"abcdef", "1":"bc",    "2":"abdeg",  "3":"abcdg", "4":"bcfg",
+  "5":"acdfg",  "6":"acdefg","7":"abc",    "8":"abcdefg","9":"abcdfg",
+  "-":"g", " ":""
+};
+const SEG_W = 40, SEG_H = 58;
+
+function lcdDigits(v, px){
+  const txt = String(v);
+  let g = "";
+  for(let i = 0; i < txt.length; i++){
+    const on = SEG_ON[txt[i]] || "";
+    let d = "";
+    for(const s in SEG_PTS)
+      d += '<polygon points="' + SEG_PTS[s] + '" class="seg' + (on.indexOf(s) >= 0 ? " on" : "") + '"/>';
+    g += '<g transform="translate(' + (i * SEG_W) + ' 0)">' + d + '</g>';
+  }
+  return '<svg class="lcdnum" viewBox="0 0 ' + (txt.length * SEG_W - 4) + ' ' + SEG_H + '" ' +
+         'height="' + (px || 52) + '" role="img" aria-label="' + esc(txt) + '">' + g + '</svg>';
 }
 function whenText(ts){
   const d = new Date(ts), mins = Math.round((Date.now() - d.getTime())/60000);
@@ -559,7 +590,8 @@ function render(){
         '<span class="slash">/</span>' +
         lcdDigits(last.dia) +
         '<span class="unit">mmHg</span>' +
-        (last.pulse != null ? '<span class="pulse"><b>' + last.pulse + '</b><div class="lcd-label" style="margin-top:2px">ppm</div></span>' : "") +
+        (last.pulse != null ? '<span class="pulse">' + lcdDigits(last.pulse, 26) +
+          '<div class="lcd-label" style="margin-top:2px">ppm</div></span>' : "") +
       '</div>' +
       '<div class="lcd-foot"><span style="font-weight:700">' + c.label + '</span><span>' +
       whenText(last.ts) + ' · brazo ' + last.arm.toLowerCase() + '</span></div>';
